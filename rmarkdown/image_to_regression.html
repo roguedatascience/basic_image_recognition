@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+
+<meta charset="utf-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="pandoc" />
+
+
+
+
+<title>From an image of a scatter plot to an R regression</title>
+
+<script src="image_to_regression_files/jquery-1.11.3/jquery.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="image_to_regression_files/bootstrap-3.3.5/css/bootstrap.min.css" rel="stylesheet" />
+<script src="image_to_regression_files/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="image_to_regression_files/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="image_to_regression_files/bootstrap-3.3.5/shim/respond.min.js"></script>
+<script src="image_to_regression_files/navigation-1.1/tabsets.js"></script>
+<link href="image_to_regression_files/highlightjs-9.12.0/default.css" rel="stylesheet" />
+<script src="image_to_regression_files/highlightjs-9.12.0/highlight.js"></script>
+
+<style type="text/css">code{white-space: pre;}</style>
+<style type="text/css">
+  pre:not([class]) {
+    background-color: white;
+  }
+</style>
+<script type="text/javascript">
+if (window.hljs) {
+  hljs.configure({languages: []});
+  hljs.initHighlightingOnLoad();
+  if (document.readyState && document.readyState === "complete") {
+    window.setTimeout(function() { hljs.initHighlighting(); }, 0);
+  }
+}
+</script>
+
+
+
+<style type="text/css">
+h1 {
+  font-size: 34px;
+}
+h1.title {
+  font-size: 38px;
+}
+h2 {
+  font-size: 30px;
+}
+h3 {
+  font-size: 24px;
+}
+h4 {
+  font-size: 18px;
+}
+h5 {
+  font-size: 16px;
+}
+h6 {
+  font-size: 12px;
+}
+.table th:not([align]) {
+  text-align: left;
+}
+</style>
+
+
+</head>
+
+<body>
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+code {
+  color: inherit;
+  background-color: rgba(0, 0, 0, 0.04);
+}
+img {
+  max-width:100%;
+  height: auto;
+}
+.tabbed-pane {
+  padding-top: 12px;
+}
+button.code-folding-btn:focus {
+  outline: none;
+}
+</style>
+
+
+
+<div class="container-fluid main-container">
+
+<!-- tabsets -->
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+</script>
+
+<!-- code folding -->
+
+
+
+
+
+
+<div class="fluid-row" id="header">
+
+
+
+<h1 class="title toc-ignore">From an image of a scatter plot to an R regression</h1>
+
+</div>
+
+
+<p><strong>Overview</strong>: This post will walk you through how to import a scatter plot image into R, explain how R stores image data and how you can access and manipulate it, walk you through using clustering to detect point in the scatter plot image, and compare different forms of regression to see which one fits the scatter plot best.<br />
+<strong>Reading time</strong>: 45 minutes<br />
+<strong>Expertise level</strong>: 3/5</p>
+<hr />
+<div id="the-challenge" class="section level3">
+<h3>The challenge</h3>
+<p>Imagine some co-workers send you this old image of a scatter plot, without any other information, and ask you to help them figure out what type of regression best fits the data.</p>
+<p><img src="random_scatterplot.png" width="60%" style="display: block; margin: auto;" /></p>
+<div style="text-align: center;">
+<p>Source: <a href="https://www.betterevaluation.org/evaluation-options/scatterplot">betterevaluation</a></p>
+</div>
+<p>Your first reaction might be to extract the values manually with a quick square or something of the sort. But your co-workers tell you they’ll send you few more of these your way. And, although the work with the quick square might take you back to your middle school days, you want to figure out if you can do the whole process in a more automated way… Yep, that story is a little weak, but go with it. I promise won’t regret it (famous last words). In any case…</p>
+<p><strong>R to the rescue!!</strong></p>
+<p>I’m going to show you how you can do all of this in R. And along the way, you might learn a bunch of stuff about pipes, images representations, arrays, data munging, regression, even how a scene from Rocky IV is a great way to think about certain clustering methods. I hope you enjoy it!</p>
+</div>
+<div id="first-steps" class="section level3">
+<h3>First steps</h3>
+<div id="loading-libraries" class="section level5">
+<h5>Loading libraries</h5>
+<p>The first step is always to import all the necessary libraries.</p>
+<ul>
+<li>I use the <em>tidyverse</em>, the ultimate data wrangling framework, pretty much in every project I work on</li>
+<li>The <em>magick</em> and <em>EBImage</em> libraries are for image loading and processing</li>
+<li>The <em>cluster</em> library is for advanced clustering</li>
+</ul>
+<pre class="r"><code>library(tidyverse)
+library(magick)
+library(EBImage)
+library(cluster)</code></pre>
+</div>
+<div id="quick-note-on-pipes" class="section level5">
+<h5>Quick note on pipes</h5>
+<p>Although I don’t get very fancy with the data wrangling and the tidyverse, I do use pipes (%&gt;%) a whole lot. For those that are not familiar with them, pipes take the result from an operation and use it as the first argument of the following operation.</p>
+<p>In the following example, I pipe ‘rogue’ into the paste function (which pastes, or concatenates, 2 strings together) to paste it with ‘data’, and then pipe that result into a paste function with ‘science’. The final result is ‘rogue data science.’ This is the exact same thing as nesting all of them together. It is just much more readable.</p>
+<pre class="r"><code>a &lt;- &#39;rogue&#39;
+b &lt;- &#39;data&#39;
+c &lt;- &#39;science&#39;
+
+# Pasting with pipes
+a %&gt;%
+    paste(b) %&gt;%
+    paste(c)</code></pre>
+<pre><code>## [1] &quot;rogue data science&quot;</code></pre>
+<pre class="r"><code># Same result as pasting with nested functions
+paste(a, paste(b, paste(c)))</code></pre>
+<pre><code>## [1] &quot;rogue data science&quot;</code></pre>
+</div>
+<div id="piping-resources" class="section level5">
+<h5>Piping resources</h5>
+<p>If you want to get more familiar with pipes, here are a couple of resources:<br />
+* Quick overview: <a href="http://blog.revolutionanalytics.com/2014/07/magrittr-simplifying-r-code-with-pipes.html" class="uri">http://blog.revolutionanalytics.com/2014/07/magrittr-simplifying-r-code-with-pipes.html</a> * More complete introduction: <a href="https://www.datacamp.com/community/tutorials/pipe-r-tutorial" class="uri">https://www.datacamp.com/community/tutorials/pipe-r-tutorial</a></p>
+</div>
+</div>
+<div id="image-loading-and-data-representation" class="section level3">
+<h3>Image loading and data representation</h3>
+<div id="loading-images-with-magick" class="section level5">
+<h5>Loading images with magick</h5>
+<p>Now we’re all set to start. We’ll load the scatter plot image with the magick library’s <em>image_read</em> function. Although you could crop out the unnecessary parts of the image within R, I did it manually, for the sake of brevity.</p>
+<p><img src="image_trimming.JPG" width="100%" style="display: block; margin: auto;" /></p>
+<p>For those that are interested in how magick represents an image in R (the structure of the data), we can quicky inspect the new object with the <em>str</em> function.</p>
+<pre class="r"><code># https://www.betterevaluation.org/evaluation-options/scatterplot
+# Load image into img object
+img &lt;-
+    image_read(&#39;random_scatterplot_trimmed.jpg&#39;)
+
+# Look at the structure of the img object
+str(img)</code></pre>
+<pre><code>## Class &#39;magick-image&#39; &lt;externalptr&gt;</code></pre>
+<p>We don’t get a whole lot of information back, but this does tell us that magick image object is simply an external pointer (<externalptr>). This means that R is creating a temporary file (on your computer’s hard drive) and it is pointing to that file as the image remains loaded. This is different from other R data structures which are stored on your computer’s memory (its RAM). Using some of the hundreds of megabytes of your hard drive is actually how some packages (such as bigmemory) deal with data that is bigger that the available memory. But I digress…</p>
+</div>
+<div id="converting-images-to-data-with-ebimage" class="section level5">
+<h5>Converting images to data with EBImage</h5>
+<p>Although magick is great for loading images, the EBImage library is great for manipulating those images. What’s great is that magick actually has a function that converts magick objects into EBImage objects: <em>as_EBImage</em>.</p>
+<p>Once again, we can look at the structure of the object to better understand it and also the <em>class</em> function to specifically see what type of object it is.</p>
+<pre class="r"><code># Convert the magick image object into an EBImage object
+# and overwrite the old img object with the new one
+img &lt;-
+    img %&gt;%
+    as_EBImage()
+
+# See structure
+str(img)</code></pre>
+<pre><code>## Formal class &#39;Image&#39; [package &quot;EBImage&quot;] with 2 slots
+##   ..@ .Data    : num [1:684, 1:542, 1:3] 1 1 1 1 1 1 1 1 1 1 ...
+##   ..@ colormode: int 2</code></pre>
+<p>So an EBImage object (of Image class), which unlike magick is contained within the R environment (it’s not a pointer), contains 2 elements: the data (an array representation of an image) and a colormode.</p>
+</div>
+<div id="array-representation-of-images" class="section level5">
+<h5>Array representation of images</h5>
+<p>The array representation of the image is what we are really interested in. The dimension of this array are 684 (width) x 542 (height) x 3 (rgb). For those that are not super familiar with matrices and arrays, think of this as an Excel file with 3 sheets, and where each sheet, has 684 columns and 542 rows.</p>
+<p><img src="excel_array.JPG" width="90%" style="display: block; margin: auto;" /></p>
+<p>Here is a great visualization of what an array representation of an image is.</p>
+<p><img src="rgb_arrays.jpeg" width="70%" style="display: block; margin: auto;" /></p>
+<div style="text-align: center;">
+<p>Source: <a href="https://www.mathworks.com/help/matlab/creating_plots/image-types.html" class="uri">https://www.mathworks.com/help/matlab/creating_plots/image-types.html</a></p>
+</div>
+<p>As you can see, for each pixel in an image, there is a value for each red, green and blue channels. Here is more detailed information on the rgb color model: <a href="https://en.wikipedia.org/wiki/RGB_color_model" class="uri">https://en.wikipedia.org/wiki/RGB_color_model</a>.</p>
+</div>
+<div id="note-on-image-transparency" class="section level5">
+<h5>Note on image transparency</h5>
+<p>One more note on image array representation. While some images, like .jpg, simply have rgb information, other image types, like .png, can also have information about the transparency of the image (the little white and light grey in Google images represent transparency). This When you import a png image, there is an additional transparency channel: the alpha channel (these images are said to have an rgba color space). To see how this works, let’s load this free Superman logo from the web and look at its structure (yep, you can load images, and any other file, really, directy from the web as long as you have an internet connection and permission):</p>
+<p><img src="superman_logo.JPG" width="80%" style="display: block; margin: auto;" /></p>
+<div style="text-align: center;">
+<p>Source: <a href="http://www.freepngimg.com/download/superman_logo/2-2-superman-logo-png-file.png" class="uri">http://www.freepngimg.com/download/superman_logo/2-2-superman-logo-png-file.png</a></p>
+</div>
+<pre class="r"><code># Read image from the web (as magick object)
+image_read(&#39;http://www.freepngimg.com/download/superman_logo/2-2-superman-logo-png-file.png&#39;) %&gt;%
+    # Convert into EBImage
+    as_EBImage() %&gt;%
+    # See structure
+    str()</code></pre>
+<pre><code>## Formal class &#39;Image&#39; [package &quot;EBImage&quot;] with 2 slots
+##   ..@ .Data    : num [1:3001, 1:2252, 1:4] 1 1 1 1 1 1 1 1 1 1 ...
+##   ..@ colormode: int 2</code></pre>
+<pre class="r"><code># Notice that we are not saving an object but rather feeding the converted web image
+# directrly into the structure function</code></pre>
+<p>You can see from the <em>str</em> results that the logo is 3001 x 2252, and now, in addition to the 3 rgb dimensions, there is a 4th dimension (a 4th sheet on in the Excel file) the representing transparency of each pixel.</p>
+<p>Now that we know how images are loaded and represented, let’s try to make sense of the data and get it in a format that we can use.</p>
+</div>
+</div>
+<div id="data-reshaping" class="section level3">
+<h3>Data reshaping</h3>
+<div id="choosing-a-single-channel" class="section level5">
+<h5>Choosing a single channel</h5>
+<p>Instead of trying to make sense of all channels, for the purpose of this excercise, we are simply going to choose one, the red channel. By only selecting a single channel, the resulting data is a matrix, which is a special kind of array that simply has 2 dimesional. Going back to the Excel analogy, we are getting rid of 2 of the 3 sheets.</p>
+<pre class="r"><code># From the img object, grab the .Data component (the @ here is exacly the same a the $)
+# And select all of the items from the first 2 dimension
+# and only the first item from the 3rd dimension 
+image_mat &lt;-
+    # Blanks within the brackets means everything
+    img@.Data[, , 1]
+
+# See structure
+str(image_mat)</code></pre>
+<pre><code>##  num [1:684, 1:542] 1 1 1 1 1 1 1 1 1 1 ...</code></pre>
+<pre class="r"><code># See class
+class(image_mat)</code></pre>
+<pre><code>## [1] &quot;matrix&quot;</code></pre>
+<p>The structure of the object confirms it is now a 2-dimensional object. The class confirms that it is no longer an EBImage object but rather a native R matrix. This is exactly what we were looking for. Sweet.</p>
+</div>
+<div id="building-analogy-for-arrays-and-matrices" class="section level5">
+<h5>Building analogy for arrays and matrices</h5>
+<p>If you’re still having trouble understanding what we are doing, this might help. Think about being in a three story building. Inside each of the floors, you can move wherever you want and you can even go a floor and stand in the exact same place as in the floor below. So you have a lot of horizontal movement, and are somewhat flexible in terms of vertical movement (one of 3 stories). Suddenly, the top 2 floors close down for repairs. Now you are completely limited to horixontal movement. So the 3 story building is like an array, and a single floor within that building is a matrix. Hope that clears things up. :)</p>
+</div>
+<div id="from-a-matrix-to-a-dataframe" class="section level5">
+<h5>From a matrix to a dataframe</h5>
+<p>The next step is to get the data into a data frame, the best format for data munging and modeling. By simply converting the data into a data frame, although we do in fact get a data frame, it is not in the right shape. We can see this by using the <em>dim</em> function, which outputs the dimensions of an object.</p>
+<pre class="r"><code># Convert image_mat (a matrix) into a data fram
+image_df &lt;-
+    image_mat %&gt;%
+    as.data.frame()
+
+# See dimensions of image_df
+dim(image_df)</code></pre>
+<pre><code>## [1] 684 542</code></pre>
+<p>This data frame had 684 rows and 542 colums. This makes sense because we simply converted the image_mat without any other manupulation, so we can expect the result to be the same shape. But remember that our end product is to get a scatter plot, for which we can only have 2 colums: one with a value for x and another with a value for y.</p>
+</div>
+<div id="from-wide-form-to-long-form" class="section level5">
+<h5>From wide form to long form</h5>
+<p>Still, all of the data we need is there, except it is not stores in the actually values within the data frame, but rather in the names of its columns and its rows: the row names represent the x variable position and the variable names represent the y variable position (R has added a “V”&quot; to the beginning of the column names because columns, like the names of other R objects, should not have or start with numbers), and the actual value represents the red color value of the pixels. So the red value for the pixel with coordinates x = 1 and y = 1 is 1:</p>
+<pre class="r"><code>image_df[1, 1]</code></pre>
+<pre><code>## [1] 1</code></pre>
+<p>So the next step is to reshape this data and convert it into into a 3-variable data frame: x positon, y position, and the value for that pixel.</p>
+<p><strong>Advanced note:</strong> For those of you that have worked with matrices, this is exactly how low-density matrices (matrices with a lot of zeros) are represented. Only the elements of these matrices that have a value other than 0 are recorded.</p>
+<p>This type of data conversion is called wide format (where there are many variables typically measuring the same thing - in this case pixel colors) to long format (where the variable names are stored in a variables and the other values are stored in another variable). Let’s go ahead and do this tranformation.</p>
+<pre class="r"><code># Convert image_df from wide to long format
+image_df &lt;-
+    image_df %&gt;%
+    # Convert the rownames of the data into a variable
+    rownames_to_column() %&gt;%
+    # Rename this new variable which represents the x values
+    rename(x = rowname) %&gt;%
+    # This new variable is a string so we have to convert to numeric
+    mutate(x = as.numeric(x)) %&gt;%
+    # Convert all variables other than the x into long form
+    gather(&#39;y&#39;, &#39;pixel_value&#39;, everything(), -x) %&gt;%
+    # Fix the y values
+    mutate(y =
+               y %&gt;%
+               # Remove the V
+               str_replace_all(&#39;V&#39;, &#39;&#39;) %&gt;%
+               # Convert to numeric
+               as.numeric())
+
+# See the top rows
+head(image_df)</code></pre>
+<pre><code>##   x y pixel_value
+## 1 1 1           1
+## 2 2 1           1
+## 3 3 1           1
+## 4 4 1           1
+## 5 5 1           1
+## 6 6 1           1</code></pre>
+<p>Awesome. That did the trick.</p>
+<p>Now, to finalize the data, we need to make sure we only include the pixel values that actually interest us: those containing the points of the scatter plot.</p>
+</div>
+</div>
+<div id="finalizing-data" class="section level3">
+<h3>Finalizing data</h3>
+<div id="visualizing-pixels-with-a-histogram" class="section level5">
+<h5>Visualizing pixels with a histogram</h5>
+<p>To determine how to adequately choose the pixels of interest, we can view the values of these pixels in a histogram and see how they are distributed. We can preemtively filter out any value equal to 1, which are the white pixels (full red, green and blue result in white, while having all values at 0 results in black). We’ll use ggplot’s <em>geom_histogram</em> for the graph.</p>
+<pre class="r"><code># Plot pixel_value histogram
+image_df %&gt;%
+    # Use filtering functionality of data frame to remove all 1s (white pixels)
+    filter(pixel_value &lt; 1) %&gt;%
+    # Visualize in histogram of pixel_values
+    ggplot(aes(pixel_value)) +
+    geom_histogram(bins = 50)</code></pre>
+<p><img src="images/pixel_histogram-1.png" width="576" style="display: block; margin: auto;" /></p>
+<p>From the histogram, we can tell that there are more than just pure white values (where red is equal to 1), and that the values we are interested in probably lie between 0.1 and 0.25. But to make sure we don’t miss anything and since ther is such a big gap between the values of the dark pixels and those of the light ones, we can make 0.5 our cut point.</p>
+<pre class="r"><code>image_df &lt;-
+    image_df %&gt;%
+    # Filter 
+    filter(pixel_value &lt; 0.5)</code></pre>
+<p>Now we should be all set. The next step it to actually take a look at the scatter plot we are trying to replicate.</p>
+</div>
+</div>
+<div id="visualizing-the-data" class="section level3">
+<h3>Visualizing the data</h3>
+<div id="first-peak-at-the-scatter-plot" class="section level5">
+<h5>First peak at the scatter plot</h5>
+<p>Now that the data is finalized, at the structure of the data and the shoice of pixels, we can use ggplot’s <em>geom_point</em> to view the scatter plot.</p>
+<pre class="r"><code>image_df %&gt;%
+    ggplot(aes(x = x, y = y)) +
+    geom_point()</code></pre>
+<p><img src="images/initial_scatter_plot-1.png" width="576" style="display: block; margin: auto;" /></p>
+<p>If we compare this scatter plot to the original one we loaded, it seems to be upside down. This is becuase the array representation the image flips the image within the data structure. I am not 100% sure why that is, but I am sure it has some purpose.</p>
+</div>
+<div id="final-touches-flipping-and-scaling" class="section level5">
+<h5>Final touches: flipping and scaling</h5>
+<p>Either way, it’s an easy fix. All we need is to flip the points. To do so, we just have to mutpliy the y values by -1, which flips the data, and add the difference of the biggest positive and negative points, which corrects the negative values that resulted from the flip.</p>
+<p>The other wuick change we have to make is to make sure that the scales of the x and the y are the same as the original plot. Eyeballing it, the y values seem to range from a 4 to a 98, and the x from 1900 to 1920. In order to rescaled the x and the y, we have to perform the following calculation:</p>
+<div style="text-align: center;">
+<p><img src="rescaling.JPG" width="50%" style="display: block; margin: auto;" /></p>
+</div>
+<p>Source: <a href="https://stats.stackexchange.com/questions/25894/changing-the-scale-of-a-variable-to-0-100" class="uri">https://stats.stackexchange.com/questions/25894/changing-the-scale-of-a-variable-to-0-100</a></p>
+<pre class="r"><code>min_x_new &lt;- 1900
+max_x_new &lt;- 1920
+min_y_new &lt;- 4
+max_y_new &lt;- 98
+
+
+image_df &lt;-
+    image_df %&gt;%
+    
+    # First flip the points
+    mutate(new_y = y * (-1)) %&gt;%
+    mutate(new_y = new_y + (max(y) - max(new_y))) %&gt;%
+    select(-y) %&gt;%
+    rename(y = new_y) %&gt;%
+    
+    # Then rescale the values
+    mutate(x =
+               ((max_x_new - min_x_new) / (max(x) - min(x))) *
+               (x - max(x)) + max_x_new,
+           y =
+               ((max_y_new - min_y_new) / (max(y) - min(y))) *
+               (y - max(y)) + max_y_new)
+
+image_df %&gt;%
+    ggplot(aes(x = x, y = y)) +
+    geom_point()</code></pre>
+<p><img src="images/corrected_scatter_plot-1.png" width="576" style="display: block; margin: auto;" /></p>
+<p>Perfect. Onto the next part! :)</p>
+</div>
+</div>
+<div id="clustering" class="section level3">
+<h3>Clustering</h3>
+<p>Although we got the data in the shape that we want it, we still have a problem with the points. We want each point on the scatter plot to be represented by a single point in the data. Right now, we have multiple points, which makes sense since, in the image, each point is made up of multiple pixels.</p>
+<p>Clustering to the rescue! Specifically, k-means clustering to the rescue!</p>
+<div id="k-means-clustering-overviews" class="section level5">
+<h5>k-means clustering overviews</h5>
+<p>For those that are not familiar with clustering, I was going to do a brief overview of k-means clustering, but there are so many great sources already out there, that pointing you towards them is probably more efficient. So before moving forward, I recommend the following sources:<br />
+* Non-mathy overview: <a href="http://www.dummies.com/programming/big-data/data-science/data-clustering-with-the-k-means-algorithm/" class="uri">http://www.dummies.com/programming/big-data/data-science/data-clustering-with-the-k-means-algorithm/</a> * More technical overview: <a href="https://www.datascience.com/blog/k-means-clustering" class="uri">https://www.datascience.com/blog/k-means-clustering</a></p>
+<p>While most of the times one uses k-means clsutering, there is a bit of guesstimation as to how many clusters to look for (although there are also ways finding the optimal number of clusters), we actually know exactly how many clusters we are looking for: 21, the number of points in the scatter plot. This makes the algorithm super easy to run.</p>
+</div>
+<div id="using-k-means-for-its-centroids" class="section level5">
+<h5>Using k-means for its centroids</h5>
+<p>Once we have the results, all we have to do is extract the centroids of the clusters. These are simply the central points (more specifically, the centers of mass) of each of the groups.</p>
+<p><img src="kmeans_diagram.png" width="50%" style="display: block; margin: auto;" /></p>
+<div style="text-align: center;">
+<p>Source: <a href="http://mines.humanoriented.com/classes/2010/fall/csci568/portfolio_exports/mvoget/cluster/cluster.html" class="uri">http://mines.humanoriented.com/classes/2010/fall/csci568/portfolio_exports/mvoget/cluster/cluster.html</a></p>
+</div>
+<p>For those familiar with the Rocky movies, using the centroids here is the equivalent of “hit the one in the middle!”</p>
+<div style="text-align: center;">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/NHxUgYWcufo?rel=0" frameborder="0" allowfullscreen>
+</iframe>
+</div>
+<p>Movie reference: check!</p>
+<pre class="r"><code># Set a random seed so that the resutls are the same everytime
+set.seed(1)
+
+# Run the k-means algorithm on the x and y values of the data
+kmeans_fit &lt;-
+    kmeans(
+        # We won&#39;t need the whole dataframe, just the x and y values
+        x =
+            image_df %&gt;%
+            select(x, y),
+        # We set the number of clusters to look for to 21
+        centers = 21)
+
+# Extract the centroids from the results as a dataframe
+simplified_df &lt;-
+    kmeans_fit$centers %&gt;%
+    as_data_frame()
+
+# Plot the centroids in a scatter plot
+simplified_df %&gt;%
+    ggplot(aes(x = x, y = y)) +
+    geom_point(size = 6, alpha = .4)</code></pre>
+<p><img src="images/kmean_scatter_plot-1.png" width="576" style="display: block; margin: auto;" /></p>
+</div>
+<div id="when-k-means-fails-the-pam-algorithm" class="section level5">
+<h5>When k-means fails: the pam algorithm</h5>
+<p>The k-means clustering did a really good job. Almost exactly what we wanted, but not quite. Let’s overlay the original scatter plot onto this new one to see where there are discrepancies (not supper pretty, but it does the job).</p>
+<p><img src="cluster_analysis.JPG" width="60%" style="display: block; margin: auto;" /></p>
+<p>So k-clustering did not recognize the right clusters. Luckily, there is another clustering algorithm developed precisely for when k-means fails: the pam, or partitions around medioids, algorithm (<a href="https://www.r-bloggers.com/when-k-means-clustering-fails/" class="uri">https://www.r-bloggers.com/when-k-means-clustering-fails/</a>). The <em>cluster</em> library has a great implementation of pam.</p>
+<pre class="r"><code># To run pam, we use the exact same arguments as with kmeans
+pam_fit &lt;-
+    cluster::pam(x =
+               image_df %&gt;%
+               select(x, y),
+           k = 21)
+
+# Extract the medioids from the results as a dataframe
+simplified_df2 &lt;-
+    pam_fit$medoids %&gt;%
+    as_data_frame()
+
+# Plot the medioids in a scatter plot
+simplified_df2 %&gt;%
+    ggplot(aes(x = x, y = y)) +
+    geom_point(size = 6, alpha = 0.4)</code></pre>
+<p><img src="images/pam_scatter_plot-1.png" width="576" style="display: block; margin: auto;" /></p>
+<p>It seems like it did a better job. But to make sure, let’s overlap the original scatter plot onto this new one once again.</p>
+<p><img src="cluster_analysis2.JPG" width="60%" style="display: block; margin: auto;" /></p>
+<p>Sweet! That worked perfectly.</p>
+</div>
+</div>
+<div id="regression" class="section level3">
+<h3>Regression</h3>
+<p>We got our data ready and we’ve made sure it matches the original scatter plot. Now all we have to do is see which regression fits the data best.</p>
+<div id="eyeballing-the-regressions" class="section level5">
+<h5>Eyeballing the regressions</h5>
+<p>The first thing we can do is a good old eye test. Using the ggplot stat_smooth function, we can plot both a linear regression and a quadratic. Here is a pretty good and simple overview of these different regression types: <a href="http://blog.minitab.com/blog/adventures-in-statistics-2/curve-fitting-with-linear-and-nonlinear-regression" class="uri">http://blog.minitab.com/blog/adventures-in-statistics-2/curve-fitting-with-linear-and-nonlinear-regression</a>.</p>
+<pre class="r"><code># Plot the scatter plot with the linear and quadratic regression lines
+simplified_df2 %&gt;%
+    ggplot(aes(x = x, y = y)) +
+    
+    # First plot the simple linear regression
+    stat_smooth(method = &#39;lm&#39;,
+                # The function of a linear regresion is y = a + bx
+                formula = y ~ x,
+                # This removes the confidence interval plot
+                se = FALSE,
+                # Color of the line
+                col = &#39;deepskyblue2&#39;,
+                # 20% alpha (or 80% transparency)
+                alpha = 0.2,
+                # Width of the line
+                size = 2) +
+    stat_smooth(method = &#39;lm&#39;,
+                # The function of a linear regresion is y = a + b1x + b2x^2
+                formula = y ~ x + I(x^2),
+                se = FALSE,
+                col = &#39;forestgreen&#39;,
+                alpha = 0.2,
+                size = 2) +
+    # Add the scatter plot
+    geom_point(size = 6, alpha = 0.4)</code></pre>
+<p><img src="images/regressions_scatter_plot-1.png" width="576" style="display: block; margin: auto;" /></p>
+<pre class="r"><code># Note that I first plotter the regression lines and the the scatter plot.
+# This is simply to have the lines in the &quot;background&quot; of the graph
+# but you can do it whichever way you prefer.</code></pre>
+<p>Based on the graph, it seems like the quadratic is a slightly better fit, especially at the edges of the curves. But it’s close enough where we would probably want to make sure.</p>
+</div>
+<div id="the-ultimate-regression-verdict-r-squared" class="section level5">
+<h5>The ultimate regression verdict: r-squared</h5>
+<p>To do so, we can run the two different regressions and compare their r-squared results. If you’re not familiar with r-squared, it is a very common measure for determining how well a regression fit. It is typically interpreted and the percent of variability of the dependent variable (y in this case) that can be explained by the indepent variable or varibles (in the case there is more than 1). The higher the r-squared the better. Once again, if you want a little more information about this topic, here is a pretty good and simple explanation: <a href="http://blog.minitab.com/blog/adventures-in-statistics-2/regression-analysis-how-do-i-interpret-r-squared-and-assess-the-goodness-of-fit" class="uri">http://blog.minitab.com/blog/adventures-in-statistics-2/regression-analysis-how-do-i-interpret-r-squared-and-assess-the-goodness-of-fit</a>.</p>
+<pre class="r"><code># First we run the linear regression (with the same formula as in the ggplot graph)
+linreg_fit &lt;-
+    lm(y ~ x, data = simplified_df2)
+
+# Second we run the quadratic regression (also with the same formula as in the ggplot graph)
+quadreg_fit &lt;-
+    lm(y ~ x + I(x^2), data = simplified_df2)
+
+# Now we can return the r-squared.
+# We can do this in a more fancy manner with the message function
+message(
+    paste(&#39;Linear regression r-squared:&#39;,
+          # Get the r-squared element from the summary of the fit
+          summary(linreg_fit)$r.squared)
+)</code></pre>
+<pre><code>## Linear regression r-squared: 0.799783601324086</code></pre>
+<pre class="r"><code>message(
+    paste(&#39;Quadratic regression r-squared:&#39;,
+          # Get the r-squared element from the summary of the fit
+          summary(quadreg_fit)$r.squared)
+)</code></pre>
+<pre><code>## Quadratic regression r-squared: 0.861010457639293</code></pre>
+<p>This proves what we concluded from the graph: the quadratic is a better fit. It explains 86% percent of the variability of the dependent variable, while the linear regression only explained 80%, which is still pretty good.</p>
+<p>Awesome, we’re all done. Hope you enjoyed it and learned a few new things. Please reach out if you have any questions.</p>
+<p>Cheers!</p>
+</div>
+</div>
+
+
+
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+function bootstrapStylePandocTables() {
+  $('tr.header').parent('thead').parent('table').addClass('table table-condensed');
+}
+$(document).ready(function () {
+  bootstrapStylePandocTables();
+});
+
+
+</script>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
